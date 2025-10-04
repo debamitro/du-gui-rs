@@ -1,26 +1,34 @@
 use iced::widget::{button, column, row, text};
 use iced::{Alignment, Application, Command, Element, Theme};
+use iced::futures;
+use iced::subscription::{self, Subscription};
 use std::path::{Path, PathBuf};
+use futures::channel::mpsc;
+use std::collections::HashMap;
+use iced::futures::SinkExt;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     ShowAbout,
     BackToMain,
+    SearchReady(mpsc::Sender<Message>),
     CurrentUser,
     AllUsers,
-    Scanned(Vec<FileEntry>),
+    Scanned(FileEntry),
+    Stop,
 }
 
 #[derive(Clone, Debug)]
 pub struct FileEntry {
     pub file: String,
-    pub size: String,
+    pub size: u64,
 }
 
 #[derive(Default)]
 pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
+    search_tx: Option<mpsc::Sender<Message>>,
 }
 
 #[derive(Default)]
@@ -38,16 +46,8 @@ impl Application for AppState {
 
     fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
         let entries = vec![
-            FileEntry {
-                file: "example.txt".to_string(),
-                size: "1 KB".to_string(),
-            },
-            FileEntry {
-                file: "another.file".to_string(),
-                size: "2 MB".to_string(),
-            },
         ];
-        (Self { mode: Mode::Main, entries }, Command::none())
+        (Self { mode: Mode::Main, entries, search_tx: None }, Command::none())
     }
 
     fn title(&self) -> String {
@@ -62,19 +62,55 @@ impl Application for AppState {
             Message::BackToMain => {
                 self.mode = Mode::Main;
             }
-            Message::CurrentUser => {
-                return Command::perform(scan_home(), Message::Scanned);
+            Message::SearchReady(tx) => {
+                self.search_tx = Some(tx);
+            }
+            Message::CurrentUser =>  {
+                self.entries.clear();
+                if let Some(tx) = &mut self.search_tx {
+                    println!("Sending CurrentUser");
+                    let _ = tx.try_send(Message::CurrentUser);
+                    println!("Sent CurrentUser");
+                }
             }
             Message::AllUsers => {
                 // TODO: implement scanning all users
             }
-            Message::Scanned(entries) => {
-                self.entries = entries;
+            Message::Scanned(entry) => {
+                println!("Scanned: {} {}", entry.file, entry.size);
+                self.entries.push(entry);
+                self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+            }
+            Message::Stop => {
             }
         }
         Command::none()
     }
+    fn subscription(&self) -> Subscription<Self::Message> {
+            subscription::channel(
+                std::any::TypeId::of::<Message>(),
+                100,
+                |mut output| async move {
+                    let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
+                    println!("Sending SearchReady");
+                    let _ = output.send(Message::SearchReady(cmd_tx)).await;
+                    println!("Sent SearchReady");
 
+                    loop {
+                        println!("Waiting for message");
+                        let msg = cmd_rx.try_next();
+                        println!("Received message: {:?}", msg);
+                        if let Ok(Some(Message::CurrentUser)) = msg {
+                            scan_home(&mut output).await;
+                            let _ = output.send(Message::Stop).await;
+                        }
+                        else if let Err(_) = msg {
+                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                        }
+                    }
+                }
+            )
+    }
     fn view(&self) -> Element<Self::Message> {
         match self.mode {
             Mode::Main => {
@@ -82,7 +118,7 @@ impl Application for AppState {
                     .push(row![text("File").width(200), text("Size").width(100)]);
                 for entry in &self.entries {
                     table_column = table_column.push(
-                        row![text(&entry.file).width(200), text(&entry.size).width(100)]
+                        row![text(&entry.file).width(200), text(format_size(entry.size)).width(100)]
                     );
                 }
                 column![
@@ -90,6 +126,7 @@ impl Application for AppState {
                     button("About").on_press(Message::ShowAbout),
                     button("Current User").on_press(Message::CurrentUser),
                     button("All Users").on_press(Message::AllUsers),
+                    button("Stop").on_press(Message::Stop),
                     table_column,
                 ]
                 .padding(20)
@@ -109,23 +146,64 @@ impl Application for AppState {
     }
 }
 
-fn calculate_dir_size(path: &Path) -> u64 {
+async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>) {
     use std::fs;
 
-    let mut size = 0;
-    if let Ok(entries) = fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let entry_path = entry.path();
-            if entry_path.is_file() {
-                if let Ok(metadata) = entry.metadata() {
-                    size += metadata.len();
+    #[derive(Clone)]
+    enum State {
+        Visiting,
+        Visited,
+    }
+
+    #[derive(Clone)]
+    struct Item {
+        path: PathBuf,
+        state: State,
+    }
+
+    let mut stack = vec![Item { path: path.to_path_buf(), state: State::Visiting }];
+    let mut sizes: HashMap<PathBuf, u64> = HashMap::new();
+
+    while let Some(mut item) = stack.pop() {
+        match item.state {
+            State::Visiting => {
+                if item.path.is_file() {
+                    let size = item.path.metadata().unwrap().len();
+                    sizes.insert(item.path.clone(), size);
+                } else {
+                    item.state = State::Visited;
+                    stack.push(item.clone());
+                    if let Ok(entries) = fs::read_dir(&item.path) {
+                        for entry in entries.flatten() {
+                            let p = entry.path();
+                            stack.push(Item { path: p, state: State::Visiting });
+                        }
+                    }
                 }
-            } else if entry_path.is_dir() {
-                size += calculate_dir_size(&entry_path);
+            }
+            State::Visited => {
+                let mut size = 0;
+                if let Ok(entries) = fs::read_dir(&item.path) {
+                    for entry in entries.flatten() {
+                        let p = entry.path();
+                        if p.is_file() {
+                            if let Ok(meta) = entry.metadata() {
+                                size += meta.len();
+                            }
+                        } else if p.is_dir() {
+                            if let Some(s) = sizes.get(&p) {
+                                size += *s;
+                            }
+                        }
+                    }
+                }
+                sizes.insert(item.path.clone(), size);
+                println!("Sending Scanned for {} {}", item.path.to_str().unwrap_or_default(), format_size(size));
+                let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size })).await;
+                println!("Sent Scanned");
             }
         }
     }
-    size
 }
 
 fn format_size(size: u64) -> String {
@@ -139,51 +217,17 @@ fn format_size(size: u64) -> String {
     format!("{:.1} {}", size_f, UNITS[unit_index])
 }
 
-fn parse_size(size_str: &str) -> u64 {
-    let parts: Vec<&str> = size_str.split_whitespace().collect();
-    if parts.len() == 2 {
-        if let Ok(num) = parts[0].parse::<f64>() {
-            match parts[1] {
-                "B" => (num) as u64,
-                "KB" => (num * 1024.0) as u64,
-                "MB" => (num * 1024.0 * 1024.0) as u64,
-                "GB" => (num * 1024.0 * 1024.0 * 1024.0) as u64,
-                "TB" => (num * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64,
-                _ => 0,
+async fn scan_home(tx: &mut mpsc::Sender<Message>) {
+    use std::fs;
+
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+
+    if let Ok(dir_entries) = fs::read_dir(&home) {
+        for entry in dir_entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                calculate_dir_size(&path, tx).await;
             }
-        } else {
-            0
         }
-    } else {
-        0
     }
-}
-
-async fn scan_home() -> Vec<FileEntry> {
-    tokio::task::spawn_blocking(|| {
-        use std::fs;
-
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let mut entries = Vec::new();
-
-        if let Ok(dir_entries) = fs::read_dir(&home) {
-            for entry in dir_entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let size = calculate_dir_size(&path);
-                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                    let size_str = format_size(size);
-                    entries.push(FileEntry { file: file_name, size: size_str });
-                }
-            }
-        }
-
-        entries.sort_by(|a, b| {
-            // Simple sort by size, parse the string roughly
-            let a_size = parse_size(&a.size);
-            let b_size = parse_size(&b.size);
-            b_size.cmp(&a_size)
-        });
-        entries
-    }).await.unwrap_or_default()
 }
