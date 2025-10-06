@@ -12,7 +12,7 @@ use iced::futures::SinkExt;
 pub enum Message {
     ShowAbout,
     BackToMain,
-    SearchReady(mpsc::Sender<Message>),
+    SearchReady(mpsc::Sender<Message>, mpsc::Sender<Message>),
     CurrentUser,
     AllUsers,
     Scanned(FileEntry),
@@ -30,6 +30,7 @@ pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
     search_tx: Option<mpsc::Sender<Message>>,
+    stop_tx: Option<mpsc::Sender<Message>>,
     columns: Vec<FileColumn>,
     header: scrollable::Id,
     body: scrollable::Id,
@@ -41,6 +42,7 @@ impl Default for AppState {
             mode: Mode::default(),
             entries: Vec::new(),
             search_tx: None,
+            stop_tx: None,
             columns: vec![
                 FileColumn::new(FileColumnKind::File),
                 FileColumn::new(FileColumnKind::Size),
@@ -131,8 +133,9 @@ impl Application for AppState {
             Message::BackToMain => {
                 self.mode = Mode::Main;
             }
-            Message::SearchReady(tx) => {
-                self.search_tx = Some(tx);
+            Message::SearchReady(tx1, tx2) => {
+                self.search_tx = Some(tx1);
+                self.stop_tx = Some(tx2);
             }
             Message::CurrentUser =>  {
                 self.entries.clear();
@@ -145,9 +148,14 @@ impl Application for AppState {
             }
             Message::Scanned(entry) => {
                 self.entries.push(entry);
-                self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+                if self.entries.len() % 1000 == 0 {
+                    self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+                }
             }
             Message::Stop => {
+                if let Some(tx) = &mut self.stop_tx {
+                    let _ = tx.try_send(Message::Stop);
+                }
             }
             Message::SyncHeader(_) => {
                 // Handle header sync if needed
@@ -161,12 +169,13 @@ impl Application for AppState {
                 100,
                 |mut output| async move {
                     let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
-                    let _ = output.send(Message::SearchReady(cmd_tx)).await;
+                    let (stop_tx, mut stop_rx) = mpsc::channel(1);
+                    let _ = output.send(Message::SearchReady(cmd_tx, stop_tx)).await;
 
                     loop {
                         let msg = cmd_rx.try_next();
                         if let Ok(Some(Message::CurrentUser)) = msg {
-                            scan_home(&mut output).await;
+                            scan_home(&mut output, &mut stop_rx).await;
                             let _ = output.send(Message::Stop).await;
                         }
                         else if let Err(_) = msg {
@@ -211,7 +220,7 @@ impl Application for AppState {
     }
 }
 
-async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>) {
+async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
     use std::fs;
 
     #[derive(Clone)]
@@ -264,6 +273,9 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>) {
                 }
                 sizes.insert(item.path.clone(), size);
                 let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size })).await;
+                if let Ok(Some(Message::Stop)) = stop_rx.try_next() {
+                    return;
+                }
             }
         }
     }
@@ -280,7 +292,7 @@ fn format_size(size: u64) -> String {
     format!("{:.1} {}", size_f, UNITS[unit_index])
 }
 
-async fn scan_home(tx: &mut mpsc::Sender<Message>) {
+async fn scan_home(tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
     use std::fs;
 
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -289,7 +301,7 @@ async fn scan_home(tx: &mut mpsc::Sender<Message>) {
         for entry in dir_entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                calculate_dir_size(&path, tx).await;
+                calculate_dir_size(&path, tx, stop_rx).await;
             }
         }
     }
