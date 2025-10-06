@@ -268,6 +268,7 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                             if let Some(s) = sizes.get(&p) {
                                 size += *s;
                             }
+                            sizes.remove(&p);
                         }
                     }
                 }
