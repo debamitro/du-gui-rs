@@ -1,5 +1,6 @@
-use iced::widget::{button, column, row, text};
-use iced::{Alignment, Application, Command, Element, Theme};
+use iced::widget::{button, column, container, scrollable, text};
+use iced::{Alignment, Application, Command, Element, Length, Renderer, Theme};
+use iced_table::table;
 use iced::futures;
 use iced::subscription::{self, Subscription};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,7 @@ pub enum Message {
     AllUsers,
     Scanned(FileEntry),
     Stop,
+    SyncHeader(scrollable::AbsoluteOffset),
 }
 
 #[derive(Clone, Debug)]
@@ -24,11 +26,29 @@ pub struct FileEntry {
     pub size: u64,
 }
 
-#[derive(Default)]
 pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
     search_tx: Option<mpsc::Sender<Message>>,
+    columns: Vec<FileColumn>,
+    header: scrollable::Id,
+    body: scrollable::Id,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            mode: Mode::default(),
+            entries: Vec::new(),
+            search_tx: None,
+            columns: vec![
+                FileColumn::new(FileColumnKind::File),
+                FileColumn::new(FileColumnKind::Size),
+            ],
+            header: scrollable::Id::unique(),
+            body: scrollable::Id::unique(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -38,6 +58,57 @@ pub enum Mode {
     About,
 }
 
+struct FileColumn {
+    kind: FileColumnKind,
+    width: f32,
+}
+
+impl FileColumn {
+    fn new(kind: FileColumnKind) -> Self {
+        let width = match kind {
+            FileColumnKind::File => 300.0,
+            FileColumnKind::Size => 100.0,
+        };
+
+        Self { kind, width }
+    }
+}
+
+enum FileColumnKind {
+    File,
+    Size,
+}
+
+impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
+    type Row = FileEntry;
+
+    fn header(&'a self, _col_index: usize) -> Element<'a, Message> {
+        let content = match self.kind {
+            FileColumnKind::File => "File",
+            FileColumnKind::Size => "Size",
+        };
+
+        container(text(content)).center_y().into()
+    }
+
+    fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
+        let content: Element<_> = match self.kind {
+            FileColumnKind::File => text(&row.file).into(),
+            FileColumnKind::Size => text(format_size(row.size)).into(),
+        };
+
+        container(content).width(Length::Fill).center_y().into()
+    }
+
+    fn width(&self) -> f32 {
+        self.width
+    }
+
+    fn resize_offset(&self) -> Option<f32> {
+        None
+    }
+}
+
 impl Application for AppState {
     type Message = Message;
     type Theme = Theme;
@@ -45,9 +116,7 @@ impl Application for AppState {
     type Flags = ();
 
     fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        let entries = vec![
-        ];
-        (Self { mode: Mode::Main, entries, search_tx: None }, Command::none())
+        (Self::default(), Command::none())
     }
 
     fn title(&self) -> String {
@@ -68,20 +137,20 @@ impl Application for AppState {
             Message::CurrentUser =>  {
                 self.entries.clear();
                 if let Some(tx) = &mut self.search_tx {
-                    println!("Sending CurrentUser");
                     let _ = tx.try_send(Message::CurrentUser);
-                    println!("Sent CurrentUser");
                 }
             }
             Message::AllUsers => {
                 // TODO: implement scanning all users
             }
             Message::Scanned(entry) => {
-                println!("Scanned: {} {}", entry.file, entry.size);
                 self.entries.push(entry);
                 self.entries.sort_by(|a, b| b.size.cmp(&a.size));
             }
             Message::Stop => {
+            }
+            Message::SyncHeader(_) => {
+                // Handle header sync if needed
             }
         }
         Command::none()
@@ -92,14 +161,10 @@ impl Application for AppState {
                 100,
                 |mut output| async move {
                     let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
-                    println!("Sending SearchReady");
                     let _ = output.send(Message::SearchReady(cmd_tx)).await;
-                    println!("Sent SearchReady");
 
                     loop {
-                        println!("Waiting for message");
                         let msg = cmd_rx.try_next();
-                        println!("Received message: {:?}", msg);
                         if let Ok(Some(Message::CurrentUser)) = msg {
                             scan_home(&mut output).await;
                             let _ = output.send(Message::Stop).await;
@@ -114,20 +179,20 @@ impl Application for AppState {
     fn view(&self) -> Element<Self::Message> {
         match self.mode {
             Mode::Main => {
-                let mut table_column = column![]
-                    .push(row![text("File").width(200), text("Size").width(100)]);
-                for entry in &self.entries {
-                    table_column = table_column.push(
-                        row![text(&entry.file).width(200), text(format_size(entry.size)).width(100)]
-                    );
-                }
+                let file_table = table(
+                    self.header.clone(),
+                    self.body.clone(),
+                    &self.columns,
+                    &self.entries,
+                    Message::SyncHeader,
+                );
                 column![
                     text("Welcome to du-gui-rs").size(50),
                     button("About").on_press(Message::ShowAbout),
                     button("Current User").on_press(Message::CurrentUser),
                     button("All Users").on_press(Message::AllUsers),
                     button("Stop").on_press(Message::Stop),
-                    table_column,
+                    file_table,
                 ]
                 .padding(20)
                 .align_items(Alignment::Center)
@@ -198,9 +263,7 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>) {
                     }
                 }
                 sizes.insert(item.path.clone(), size);
-                println!("Sending Scanned for {} {}", item.path.to_str().unwrap_or_default(), format_size(size));
                 let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size })).await;
-                println!("Sent Scanned");
             }
         }
     }
