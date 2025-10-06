@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Application, Command, Element, Length, Renderer, Theme};
 use iced_table::table;
 use iced::futures;
@@ -68,7 +68,7 @@ struct FileColumn {
 impl FileColumn {
     fn new(kind: FileColumnKind) -> Self {
         let width = match kind {
-            FileColumnKind::File => 300.0,
+            FileColumnKind::File => 500.0,
             FileColumnKind::Size => 100.0,
         };
 
@@ -86,7 +86,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
 
     fn header(&'a self, _col_index: usize) -> Element<'a, Message> {
         let content = match self.kind {
-            FileColumnKind::File => "File",
+            FileColumnKind::File => "Folder",
             FileColumnKind::Size => "Size",
         };
 
@@ -122,7 +122,7 @@ impl Application for AppState {
     }
 
     fn title(&self) -> String {
-        String::from("du-gui-rs")
+        String::from("Disk Usage")
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
@@ -175,8 +175,16 @@ impl Application for AppState {
                     loop {
                         let msg = cmd_rx.try_next();
                         if let Ok(Some(Message::CurrentUser)) = msg {
-                            scan_home(&mut output, &mut stop_rx).await;
-                            let _ = output.send(Message::Stop).await;
+                            if let Some(dir) = dirs::home_dir() {
+                                scan_dirs(&dir, &mut output, &mut stop_rx).await;
+                            }
+                        }
+                        else if let Ok(Some(Message::AllUsers)) = msg {
+                            if let Some(dir) = dirs::home_dir() {
+                                if let Some(parent_dir) = dir.parent() {
+                                    scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
+                                }
+                            }
                         }
                         else if let Err(_) = msg {
                             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
@@ -196,14 +204,20 @@ impl Application for AppState {
                     Message::SyncHeader,
                 );
                 column![
-                    text("Welcome to du-gui-rs").size(50),
+                    text("Disk Usage").size(50),
                     button("About").on_press(Message::ShowAbout),
-                    button("Current User").on_press(Message::CurrentUser),
-                    button("All Users").on_press(Message::AllUsers),
-                    button("Stop").on_press(Message::Stop),
+                    row![
+                        button("Current User").on_press(Message::CurrentUser),
+                        button("All Users").on_press(Message::AllUsers),
+                        button("Stop").on_press(Message::Stop),
+                    ]
+                    .spacing(5)
+                    .padding([0, 10, 0, 0]),
                     file_table,
                 ]
                 .padding(20)
+                .spacing(5)
+                .width(Length::Fill)
                 .align_items(Alignment::Center)
                 .into()
             }
@@ -293,12 +307,10 @@ fn format_size(size: u64) -> String {
     format!("{:.1} {}", size_f, UNITS[unit_index])
 }
 
-async fn scan_home(tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
+async fn scan_dirs(start_dir: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
     use std::fs;
 
-    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-
-    if let Ok(dir_entries) = fs::read_dir(&home) {
+    if let Ok(dir_entries) = fs::read_dir(&start_dir) {
         for entry in dir_entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
