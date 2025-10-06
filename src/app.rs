@@ -192,7 +192,7 @@ impl Application for AppState {
                     self.header.clone(),
                     self.body.clone(),
                     &self.columns,
-                    &self.entries,
+                    &self.entries[..self.entries.len().min(20)],
                     Message::SyncHeader,
                 );
                 column![
