@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, row, scrollable, text};
+use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Application, Command, Element, Length, Renderer, Theme};
 use iced_table::table;
 use iced::futures;
@@ -22,6 +22,9 @@ pub enum Message {
     Stop,
     SyncHeader(scrollable::AbsoluteOffset),
     OpenFolder(String),
+    GoToSettings,
+    SetEntriesVisible(String),
+    SetShowLastAccessed(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -56,6 +59,7 @@ pub struct AppState {
     header: scrollable::Id,
     body: scrollable::Id,
     settings: AppSettings,
+    status: String,
 }
 
 impl Default for AppState {
@@ -75,6 +79,7 @@ impl Default for AppState {
             header: scrollable::Id::unique(),
             body: scrollable::Id::unique(),
             settings: AppSettings::default(),
+            status: String::new(),
         }
     }
 }
@@ -84,6 +89,7 @@ pub enum Mode {
     #[default]
     Main,
     About,
+    Settings,
 }
 
 struct FileColumn {
@@ -152,7 +158,7 @@ impl Application for AppState {
     }
 
     fn title(&self) -> String {
-        String::from("FlashFind")
+        String::from("FindBigFolders")
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
@@ -197,6 +203,17 @@ impl Application for AppState {
             }
             Message::OpenFolder(path) => {
                 let _ = std::process::Command::new("open").arg(&path).spawn();
+            }
+            Message::GoToSettings => {
+                self.mode = Mode::Settings;
+            }
+            Message::SetEntriesVisible(value) => {
+                if let Ok(num) = value.parse::<usize>() {
+                    self.settings.entries_visible = num;
+                }
+            }
+            Message::SetShowLastAccessed(value) => {
+                self.settings.show_last_accessed = value;
             }
             Message::Done => {
                 self.scanning = false;
@@ -248,8 +265,13 @@ impl Application for AppState {
                     Message::SyncHeader,
                 );
                 column![
-                    text("FlashFind").size(50),
-                    button("About").on_press(Message::ShowAbout),
+                    text("FindBigFolders").size(50),
+                    row![
+                        button("About").on_press(Message::ShowAbout),
+                        button("Settings").on_press(Message::GoToSettings),
+                    ]
+                    .spacing(5)
+                    .padding([0, 10, 0, 0]),
                     row![
                         button("Current User")
                         .on_press_maybe(if self.scanning { 
@@ -270,6 +292,7 @@ impl Application for AppState {
                     ]
                     .spacing(5)
                     .padding([0, 10, 0, 0]),
+                    container(text(&self.status).size(20)).style(iced::theme::Container::Box),
                     file_table,
                 ]
                 .padding(20)
@@ -279,13 +302,31 @@ impl Application for AppState {
                 .into()
             }
             Mode::About => column![
-                text("About FlashFind").size(50),
+                text("About FindBigFolders").size(50),
                 text("Version 1.0.0").size(30),
                 text("Quickly find out which folders are taking space on your hard disk.").size(20),
                 button("Back").on_press(Message::BackToMain),
             ]
             .padding(20)
             .spacing(5)
+            .width(Length::Fill)
+            .align_items(Alignment::Center)
+            .into(),
+            Mode::Settings => column![
+                text("Settings").size(50),
+                row![
+                    text("Number of entries to show:"),
+                    text_input("", &self.settings.entries_visible.to_string())
+                        .on_input(Message::SetEntriesVisible),
+                ]
+                .spacing(10)
+                .align_items(Alignment::Center),
+                checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
+                    .on_toggle(Message::SetShowLastAccessed),
+                button("Back").on_press(Message::BackToMain),
+            ]
+            .padding(20)
+            .spacing(20)
             .width(Length::Fill)
             .align_items(Alignment::Center)
             .into(),
@@ -308,6 +349,7 @@ impl AppState {
                 }
             }
         }
+        self.status = format!("Scanned {} folders, showing the {} biggest ones", self.entries.len(), self.settings.entries_visible);
     }
 }
 
