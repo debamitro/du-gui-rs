@@ -8,6 +8,7 @@ use futures::channel::mpsc;
 use std::collections::HashMap;
 use iced::futures::SinkExt;
 use std::process;
+use chrono::{DateTime, Local};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -17,7 +18,7 @@ pub enum Message {
     CurrentUser,
     AllUsers,
     Scanned(FileEntry),
-    Done
+    Done,
     Stop,
     SyncHeader(scrollable::AbsoluteOffset),
     OpenFolder(String),
@@ -27,18 +28,34 @@ pub enum Message {
 pub struct FileEntry {
     pub file: String,
     pub size: u64,
+    pub accessed: Option<DateTime<Local>>,
+}
+
+pub struct AppSettings {
+    entries_visible: usize,
+    show_last_accessed: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            entries_visible: 20,
+            show_last_accessed: true,
+        }
+    }
 }
 
 pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
-    entries_visible: u64,
-    sort_cutoff: u64,
+    sort_cutoff: usize,
+    scanning: bool,
     search_tx: Option<mpsc::Sender<Message>>,
     stop_tx: Option<mpsc::Sender<Message>>,
     columns: Vec<FileColumn>,
     header: scrollable::Id,
     body: scrollable::Id,
+    settings: AppSettings,
 }
 
 impl Default for AppState {
@@ -46,16 +63,18 @@ impl Default for AppState {
         Self {
             mode: Mode::default(),
             entries: Vec::new(),
-            entries_visible: 20,
             sort_cutoff: 1000,
+            scanning: false,
             search_tx: None,
             stop_tx: None,
             columns: vec![
                 FileColumn::new(FileColumnKind::File),
                 FileColumn::new(FileColumnKind::Size),
+                FileColumn::new(FileColumnKind::AccessTime),
             ],
             header: scrollable::Id::unique(),
             body: scrollable::Id::unique(),
+            settings: AppSettings::default(),
         }
     }
 }
@@ -77,6 +96,7 @@ impl FileColumn {
         let width = match kind {
             FileColumnKind::File => 500.0,
             FileColumnKind::Size => 100.0,
+            FileColumnKind::AccessTime => 150.0,
         };
 
         Self { kind, width }
@@ -86,6 +106,7 @@ impl FileColumn {
 enum FileColumnKind {
     File,
     Size,
+    AccessTime,
 }
 
 impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
@@ -95,6 +116,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
         let content = match self.kind {
             FileColumnKind::File => "Folder",
             FileColumnKind::Size => "Size",
+            FileColumnKind::AccessTime => "Last Accessed",
         };
 
         container(text(content)).center_y().into()
@@ -104,6 +126,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
         let content: Element<_> = match self.kind {
             FileColumnKind::File => button(text(&row.file)).on_press(Message::OpenFolder(row.file.clone())).into(),
             FileColumnKind::Size => text(format_size(row.size)).into(),
+            FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed { accessed_dt.format("%Y-%m-%d %H:%M").to_string() } else { "".to_string() }).into(),
         };
 
         container(content).width(Length::Fill).center_y().into()
@@ -129,7 +152,7 @@ impl Application for AppState {
     }
 
     fn title(&self) -> String {
-        String::from("Disk Usage")
+        String::from("FlashFind")
     }
 
     fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
@@ -147,19 +170,21 @@ impl Application for AppState {
             Message::CurrentUser =>  {
                 self.entries.clear();
                 if let Some(tx) = &mut self.search_tx {
+                    self.scanning = true;
                     let _ = tx.try_send(Message::CurrentUser);
                 }
             }
             Message::AllUsers => {
                 self.entries.clear();
                 if let Some(tx) = &mut self.search_tx {
+                    self.scanning = true;
                     let _ = tx.try_send(Message::AllUsers);
                 }
             }
             Message::Scanned(entry) => {
                 self.entries.push(entry);
                 if self.entries.len() % self.sort_cutoff == 0 {
-                    self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+                    self.bake_entries();
                 }
             }
             Message::Stop => {
@@ -174,7 +199,8 @@ impl Application for AppState {
                 let _ = std::process::Command::new("open").arg(&path).spawn();
             }
             Message::Done => {
-                self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+                self.scanning = false;
+                self.bake_entries();
             }
         }
         Command::none()
@@ -218,16 +244,29 @@ impl Application for AppState {
                     self.header.clone(),
                     self.body.clone(),
                     &self.columns,
-                    &self.entries[..self.entries.len().min(20)],
+                    &self.entries[..self.entries.len().min(self.settings.entries_visible)],
                     Message::SyncHeader,
                 );
                 column![
-                    text("Disk Usage").size(50),
+                    text("FlashFind").size(50),
                     button("About").on_press(Message::ShowAbout),
                     row![
-                        button("Current User").on_press(Message::CurrentUser),
-                        button("All Users").on_press(Message::AllUsers),
-                        button("Stop").on_press(Message::Stop),
+                        button("Current User")
+                        .on_press_maybe(if self.scanning { 
+                            None } else { 
+                                Some(Message::CurrentUser) 
+                            }),
+                        button("All Users")
+                        .on_press_maybe(if self.scanning { 
+                            None } else { 
+                                Some(Message::AllUsers) 
+                            }),
+                        button("Stop")
+                        .on_press_maybe(if self.scanning { 
+                            Some(Message::Stop) 
+                            } else { 
+                                None 
+                            }),
                     ]
                     .spacing(5)
                     .padding([0, 10, 0, 0]),
@@ -240,20 +279,51 @@ impl Application for AppState {
                 .into()
             }
             Mode::About => column![
-                text("About du-gui-rs").size(50),
+                text("About FlashFind").size(50),
                 text("Version 1.0.0").size(30),
-                text("This application tries to find out which files are taking space on your hard disk.").size(20),
+                text("Quickly find out which folders are taking space on your hard disk.").size(20),
                 button("Back").on_press(Message::BackToMain),
             ]
             .padding(20)
+            .spacing(5)
+            .width(Length::Fill)
             .align_items(Alignment::Center)
             .into(),
         }
     }
 }
 
+impl AppState {
+    fn bake_entries(&mut self) {
+        self.entries.sort_by(|a, b| b.size.cmp(&a.size));
+
+        if self.settings.show_last_accessed {
+            for entry in self.entries.iter_mut().take(self.settings.entries_visible) {
+                if entry.accessed.is_none() {
+                    if let Ok(metadata) = std::fs::metadata(&entry.file) {
+                        if let Ok(accessed) = metadata.accessed() {
+                            entry.accessed = Some(DateTime::<Local>::from(accessed));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
     use std::fs;
+
+    fn get_allocated_size(path: &Path) -> u64 {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(meta) = path.metadata() {
+            let blocks = meta.blocks();
+            let blksize = meta.blksize() as u64;
+            blocks * 512
+        } else {
+            0
+        }
+    }
 
     #[derive(Clone)]
     enum State {
@@ -274,21 +344,24 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
         match item.state {
             State::Visiting => {
                 if item.path.is_file() {
-                    let size = item.path.metadata().unwrap().len();
-                    sizes.insert(item.path.clone(), size);
+                    let alloc_size = get_allocated_size(&item.path);
+                    sizes.insert(item.path.clone(), alloc_size);
                 } else {
                     item.state = State::Visited;
                     stack.push(item.clone());
                     if let Ok(entries) = fs::read_dir(&item.path) {
                         for entry in entries.flatten() {
                             let p = entry.path();
+                            if p.is_symlink() {
+                                continue;
+                            }
                             stack.push(Item { path: p, state: State::Visiting });
                         }
                     }
                 }
             }
             State::Visited => {
-                let mut size = 0;
+                let mut size = get_allocated_size(&item.path);
                 if let Ok(entries) = fs::read_dir(&item.path) {
                     for entry in entries.flatten() {
                         let p = entry.path();
@@ -297,9 +370,7 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                         }
 
                         if p.is_file() {
-                            if let Ok(meta) = entry.metadata() {
-                                size += meta.len();
-                            }
+                            size += get_allocated_size(&p);
                         } else if p.is_dir() {
                             if let Some(s) = sizes.get(&p) {
                                 size += *s;
@@ -309,7 +380,7 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                     }
                 }
                 sizes.insert(item.path.clone(), size);
-                let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size })).await;
+                let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size, accessed: None })).await;
                 if let Ok(Some(Message::Stop)) = stop_rx.try_next() {
                     return;
                 }
