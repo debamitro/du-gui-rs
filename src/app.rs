@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use futures::channel::mpsc;
 use std::collections::HashMap;
 use iced::futures::SinkExt;
+use std::process;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -16,8 +17,10 @@ pub enum Message {
     CurrentUser,
     AllUsers,
     Scanned(FileEntry),
+    Done
     Stop,
     SyncHeader(scrollable::AbsoluteOffset),
+    OpenFolder(String),
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +32,8 @@ pub struct FileEntry {
 pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
+    entries_visible: u64,
+    sort_cutoff: u64,
     search_tx: Option<mpsc::Sender<Message>>,
     stop_tx: Option<mpsc::Sender<Message>>,
     columns: Vec<FileColumn>,
@@ -41,6 +46,8 @@ impl Default for AppState {
         Self {
             mode: Mode::default(),
             entries: Vec::new(),
+            entries_visible: 20,
+            sort_cutoff: 1000,
             search_tx: None,
             stop_tx: None,
             columns: vec![
@@ -95,7 +102,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
 
     fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
         let content: Element<_> = match self.kind {
-            FileColumnKind::File => text(&row.file).into(),
+            FileColumnKind::File => button(text(&row.file)).on_press(Message::OpenFolder(row.file.clone())).into(),
             FileColumnKind::Size => text(format_size(row.size)).into(),
         };
 
@@ -144,11 +151,14 @@ impl Application for AppState {
                 }
             }
             Message::AllUsers => {
-                // TODO: implement scanning all users
+                self.entries.clear();
+                if let Some(tx) = &mut self.search_tx {
+                    let _ = tx.try_send(Message::AllUsers);
+                }
             }
             Message::Scanned(entry) => {
                 self.entries.push(entry);
-                if self.entries.len() % 1000 == 0 {
+                if self.entries.len() % self.sort_cutoff == 0 {
                     self.entries.sort_by(|a, b| b.size.cmp(&a.size));
                 }
             }
@@ -159,6 +169,12 @@ impl Application for AppState {
             }
             Message::SyncHeader(_) => {
                 // Handle header sync if needed
+            }
+            Message::OpenFolder(path) => {
+                let _ = std::process::Command::new("open").arg(&path).spawn();
+            }
+            Message::Done => {
+                self.entries.sort_by(|a, b| b.size.cmp(&a.size));
             }
         }
         Command::none()
@@ -177,12 +193,14 @@ impl Application for AppState {
                         if let Ok(Some(Message::CurrentUser)) = msg {
                             if let Some(dir) = dirs::home_dir() {
                                 scan_dirs(&dir, &mut output, &mut stop_rx).await;
+                                let _ = output.send(Message::Done).await;
                             }
                         }
                         else if let Ok(Some(Message::AllUsers)) = msg {
                             if let Some(dir) = dirs::home_dir() {
                                 if let Some(parent_dir) = dir.parent() {
                                     scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
+                                    let _ = output.send(Message::Done).await;
                                 }
                             }
                         }
@@ -274,6 +292,10 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                 if let Ok(entries) = fs::read_dir(&item.path) {
                     for entry in entries.flatten() {
                         let p = entry.path();
+                        if p.is_symlink() {
+                            continue;
+                        }
+
                         if p.is_file() {
                             if let Ok(meta) = entry.metadata() {
                                 size += meta.len();
