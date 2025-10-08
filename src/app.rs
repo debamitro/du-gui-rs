@@ -1,13 +1,14 @@
 use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
-use iced::{Alignment, Application, Command, Element, Length, Renderer, Theme};
+use iced::{Alignment, Element, Length, Renderer, Task, Theme};
 use iced_table::table;
 use iced::futures;
-use iced::subscription::{self, Subscription};
+use iced::stream;
+use iced::Subscription;
 use std::path::{Path, PathBuf};
 use futures::channel::mpsc;
 use std::collections::HashMap;
-use iced::futures::SinkExt;
-use std::process;
+use iced::futures::{SinkExt, StreamExt};
+use iced::alignment::Vertical;
 use chrono::{DateTime, Local};
 
 #[derive(Debug, Clone)]
@@ -125,7 +126,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
             FileColumnKind::AccessTime => "Last Accessed",
         };
 
-        container(text(content)).center_y().into()
+        container(text(content)).align_y(Vertical::Center).into()
     }
 
     fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
@@ -135,7 +136,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
             FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed { accessed_dt.format("%Y-%m-%d %H:%M").to_string() } else { "".to_string() }).into(),
         };
 
-        container(content).width(Length::Fill).center_y().into()
+        container(content).width(Length::Fill).align_y(Vertical::Center).into()
     }
 
     fn width(&self) -> f32 {
@@ -147,21 +148,12 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
     }
 }
 
-impl Application for AppState {
-    type Message = Message;
-    type Theme = Theme;
-    type Executor = iced::executor::Default;
-    type Flags = ();
-
-    fn new(_flags: Self::Flags) -> (Self, Command<Self::Message>) {
-        (Self::default(), Command::none())
+impl AppState {
+    pub fn new() -> (Self, Task<Message>) {
+        (Self::default(), Task::none())
     }
 
-    fn title(&self) -> String {
-        String::from("FindBigFolders")
-    }
-
-    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+    pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ShowAbout => {
                 self.mode = Mode::About;
@@ -220,41 +212,12 @@ impl Application for AppState {
                 self.bake_entries();
             }
         }
-        Command::none()
+        Task::none()
     }
-    fn subscription(&self) -> Subscription<Self::Message> {
-            subscription::channel(
-                std::any::TypeId::of::<Message>(),
-                100,
-                |mut output| async move {
-                    let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
-                    let (stop_tx, mut stop_rx) = mpsc::channel(1);
-                    let _ = output.send(Message::SearchReady(cmd_tx, stop_tx)).await;
-
-                    loop {
-                        let msg = cmd_rx.try_next();
-                        if let Ok(Some(Message::CurrentUser)) = msg {
-                            if let Some(dir) = dirs::home_dir() {
-                                scan_dirs(&dir, &mut output, &mut stop_rx).await;
-                                let _ = output.send(Message::Done).await;
-                            }
-                        }
-                        else if let Ok(Some(Message::AllUsers)) = msg {
-                            if let Some(dir) = dirs::home_dir() {
-                                if let Some(parent_dir) = dir.parent() {
-                                    scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
-                                    let _ = output.send(Message::Done).await;
-                                }
-                            }
-                        }
-                        else if let Err(_) = msg {
-                            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                        }
-                    }
-                }
-            )
+    pub fn subscription(&self) -> Subscription<Message> {
+        Subscription::run(scanner_subscription)
     }
-    fn view(&self) -> Element<Self::Message> {
+    pub fn view(&self) -> Element<Message> {
         match self.mode {
             Mode::Main => {
                 let file_table = table(
@@ -270,8 +233,7 @@ impl Application for AppState {
                         button("About").on_press(Message::ShowAbout),
                         button("Settings").on_press(Message::GoToSettings),
                     ]
-                    .spacing(5)
-                    .padding([0, 10, 0, 0]),
+                    .spacing(5),
                     row![
                         button("Current User")
                         .on_press_maybe(if self.scanning { 
@@ -290,15 +252,14 @@ impl Application for AppState {
                                 None 
                             }),
                     ]
-                    .spacing(5)
-                    .padding([0, 10, 0, 0]),
-                    container(text(&self.status).size(20)).style(iced::theme::Container::Box),
+                    .spacing(5),
+                    container(text(&self.status).size(20)),
                     file_table,
                 ]
-                .padding(20)
+                .padding(10)
                 .spacing(5)
                 .width(Length::Fill)
-                .align_items(Alignment::Center)
+                .align_x(Alignment::Center)
                 .into()
             }
             Mode::About => column![
@@ -310,7 +271,7 @@ impl Application for AppState {
             .padding(20)
             .spacing(5)
             .width(Length::Fill)
-            .align_items(Alignment::Center)
+            .align_x(Alignment::Center)
             .into(),
             Mode::Settings => column![
                 text("Settings").size(50),
@@ -320,7 +281,7 @@ impl Application for AppState {
                         .on_input(Message::SetEntriesVisible),
                 ]
                 .spacing(10)
-                .align_items(Alignment::Center),
+                .align_y(Alignment::Center),
                 checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
                     .on_toggle(Message::SetShowLastAccessed),
                 button("Back").on_press(Message::BackToMain),
@@ -328,7 +289,7 @@ impl Application for AppState {
             .padding(20)
             .spacing(20)
             .width(Length::Fill)
-            .align_items(Alignment::Center)
+            .align_x(Alignment::Center)
             .into(),
         }
     }
@@ -360,7 +321,7 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
         use std::os::unix::fs::MetadataExt;
         if let Ok(meta) = path.metadata() {
             let blocks = meta.blocks();
-            let blksize = meta.blksize() as u64;
+            let _blksize = meta.blksize() as u64;
             blocks * 512
         } else {
             0
@@ -453,4 +414,36 @@ async fn scan_dirs(start_dir: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &m
             }
         }
     }
+}
+
+fn scanner_subscription() -> impl futures::Stream<Item = Message> {
+    stream::channel(
+        100,
+        |mut output| async move {
+            let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
+            let (stop_tx, mut stop_rx) = mpsc::channel(1);
+            let _ = output.send(Message::SearchReady(cmd_tx, stop_tx)).await;
+
+            loop {
+                let msg = cmd_rx.try_next();
+                if let Ok(Some(Message::CurrentUser)) = msg {
+                    if let Some(dir) = dirs::home_dir() {
+                        scan_dirs(&dir, &mut output, &mut stop_rx).await;
+                        let _ = output.send(Message::Done).await;
+                    }
+                }
+                else if let Ok(Some(Message::AllUsers)) = msg {
+                    if let Some(dir) = dirs::home_dir() {
+                        if let Some(parent_dir) = dir.parent() {
+                            scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
+                            let _ = output.send(Message::Done).await;
+                        }
+                    }
+                }
+                else if let Err(_) = msg {
+                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                }
+            }
+        }
+    )
 }

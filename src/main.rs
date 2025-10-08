@@ -1,8 +1,9 @@
 mod app;
 
 use app::AppState;
-use iced::Application;
 
 fn main() -> iced::Result {
-    AppState::run(iced::Settings::default())
+    iced::application("FindBigFolders", AppState::update, AppState::view)
+        .subscription(AppState::subscription)
+        .run_with(AppState::new)
 }
