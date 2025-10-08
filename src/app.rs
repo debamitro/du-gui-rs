@@ -131,7 +131,11 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
 
     fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
         let content: Element<_> = match self.kind {
-            FileColumnKind::File => button(text(&row.file)).on_press(Message::OpenFolder(row.file.clone())).into(),
+            FileColumnKind::File => button(
+                text(&row.file))
+                .style(button::text)
+                .on_press(Message::OpenFolder(row.file.clone()))
+                .into(),
             FileColumnKind::Size => text(format_size(row.size)).into(),
             FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed { accessed_dt.format("%Y-%m-%d %H:%M").to_string() } else { "".to_string() }).into(),
         };
@@ -236,6 +240,7 @@ impl AppState {
                     .spacing(5),
                     row![
                         button("Current User")
+                        .style(button::primary)
                         .on_press_maybe(if self.scanning { 
                             None } else { 
                                 Some(Message::CurrentUser) 
@@ -246,6 +251,7 @@ impl AppState {
                                 Some(Message::AllUsers) 
                             }),
                         button("Stop")
+                        .style(button::danger)
                         .on_press_maybe(if self.scanning { 
                             Some(Message::Stop) 
                             } else { 
