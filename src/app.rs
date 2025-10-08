@@ -232,12 +232,13 @@ impl AppState {
                     Message::SyncHeader,
                 );
                 column![
-                    text("FindBigFolders").size(50),
+                    container(
                     row![
-                        button("About").on_press(Message::ShowAbout),
-                        button("Settings").on_press(Message::GoToSettings),
+                        button("About").style(button::text).on_press(Message::ShowAbout),
+                        button("Settings").style(button::text).on_press(Message::GoToSettings),
                     ]
-                    .spacing(5),
+                    .spacing(5)).align_right(Length::Fill),
+                    text("FindBigFolders").size(50),
                     row![
                         button("Current User")
                         .style(button::primary)
@@ -269,17 +270,27 @@ impl AppState {
                 .into()
             }
             Mode::About => column![
+                container(row![
+                    button("Home").style(button::text).on_press(Message::BackToMain),
+                    button("Settings").style(button::text).on_press(Message::GoToSettings),
+                ]
+                .spacing(5)).align_right(Length::Fill),
                 text("About FindBigFolders").size(50),
-                text("Version 1.0.0").size(30),
-                text("Quickly find out which folders are taking space on your hard disk.").size(20),
-                button("Back").on_press(Message::BackToMain),
+                text("Version 0.1.0").size(30),
+                text("Quickly find out which folders are taking space on your hard disk. Way faster than finding out the sizes of everything on your system").size(20),
+                text("Copyright (c) 2025 East Coast Software LLC").size(10),
             ]
-            .padding(20)
+            .padding(10)
             .spacing(5)
             .width(Length::Fill)
             .align_x(Alignment::Center)
             .into(),
             Mode::Settings => column![
+                container(row![
+                    button("Home").style(button::text).on_press(Message::BackToMain),
+                    button("About").style(button::text).on_press(Message::ShowAbout),
+                ]
+                .spacing(5)).align_right(Length::Fill),
                 text("Settings").size(50),
                 row![
                     text("Number of entries to show:"),
@@ -290,10 +301,9 @@ impl AppState {
                 .align_y(Alignment::Center),
                 checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
                     .on_toggle(Message::SetShowLastAccessed),
-                button("Back").on_press(Message::BackToMain),
             ]
-            .padding(20)
-            .spacing(20)
+            .padding(10)
+            .spacing(5)
             .width(Length::Fill)
             .align_x(Alignment::Center)
             .into(),
