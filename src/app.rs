@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use iced::futures::{SinkExt, StreamExt};
 use iced::alignment::Vertical;
 use chrono::{DateTime, Local};
+use rfd::AsyncFileDialog;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -26,6 +27,8 @@ pub enum Message {
     GoToSettings,
     SetEntriesVisible(String),
     SetShowLastAccessed(bool),
+    OpenFolderDialog,
+    FolderSelected(Option<PathBuf>),
 }
 
 #[derive(Clone, Debug)]
@@ -215,6 +218,23 @@ impl AppState {
                 self.scanning = false;
                 self.bake_entries();
             }
+            Message::OpenFolderDialog => {
+                return Task::perform(
+                    async {
+                        AsyncFileDialog::new().pick_folder().await.map(|handle| handle.path().to_path_buf())
+                    },
+                    Message::FolderSelected,
+                );
+            }
+            Message::FolderSelected(path) => {
+                if let Some(p) = path {
+                    self.entries.clear();
+                    if let Some(tx) = &mut self.search_tx {
+                        self.scanning = true;
+                        let _ = tx.try_send(Message::FolderSelected(Some(p)));
+                    }
+                }
+            }
         }
         Task::none()
     }
@@ -240,7 +260,13 @@ impl AppState {
                     .spacing(5)).align_right(Length::Fill),
                     text("FindBigFolders").size(50),
                     row![
-                        button("Current User")
+                        button("Select Folder")
+                        .style(button::primary)
+                        .on_press_maybe(if self.scanning { 
+                            None } else { 
+                                Some(Message::OpenFolderDialog) 
+                            }),
+                        button("Current User's Home")
                         .style(button::primary)
                         .on_press_maybe(if self.scanning { 
                             None } else { 
@@ -454,6 +480,12 @@ fn scanner_subscription() -> impl futures::Stream<Item = Message> {
                             scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
                             let _ = output.send(Message::Done).await;
                         }
+                    }
+                }
+                else if let Ok(Some(Message::FolderSelected(path))) = msg {
+                    if let Some(path) = path {
+                        scan_dirs(&path, &mut output, &mut stop_rx).await;
+                        let _ = output.send(Message::Done).await;
                     }
                 }
                 else if let Err(_) = msg {
