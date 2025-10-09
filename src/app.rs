@@ -11,6 +11,7 @@ use iced::futures::{SinkExt, StreamExt};
 use iced::alignment::Vertical;
 use chrono::{DateTime, Local};
 use rfd::AsyncFileDialog;
+use crate::styles;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -257,28 +258,31 @@ impl AppState {
                         button("About").style(button::text).on_press(Message::ShowAbout),
                         button("Settings").style(button::text).on_press(Message::GoToSettings),
                     ]
-                    .spacing(5)).align_right(Length::Fill),
+                    .spacing(5))
+                    .align_right(Length::Fill)
+                    .style(styles::layout_style::header_style),
                     text("FindBigFolders").size(50),
                     row![
                         button("Select Folder")
-                        .style(button::primary)
+                        .style(styles::button_style::action_button)
                         .on_press_maybe(if self.scanning { 
                             None } else { 
                                 Some(Message::OpenFolderDialog) 
                             }),
                         button("Current User's Home")
-                        .style(button::primary)
+                        .style(styles::button_style::action_button)
                         .on_press_maybe(if self.scanning { 
                             None } else { 
                                 Some(Message::CurrentUser) 
                             }),
                         button("All Users")
+                        .style(styles::button_style::action_button)
                         .on_press_maybe(if self.scanning { 
                             None } else { 
                                 Some(Message::AllUsers) 
                             }),
                         button("Stop")
-                        .style(button::danger)
+                        .style(styles::button_style::stop_button)
                         .on_press_maybe(if self.scanning { 
                             Some(Message::Stop) 
                             } else { 
@@ -289,7 +293,6 @@ impl AppState {
                     container(text(&self.status).size(20)),
                     file_table,
                 ]
-                .padding(10)
                 .spacing(5)
                 .width(Length::Fill)
                 .align_x(Alignment::Center)
@@ -300,13 +303,14 @@ impl AppState {
                     button("Home").style(button::text).on_press(Message::BackToMain),
                     button("Settings").style(button::text).on_press(Message::GoToSettings),
                 ]
-                .spacing(5)).align_right(Length::Fill),
+                .spacing(5))
+                .align_right(Length::Fill)
+                .style(styles::layout_style::header_style),
                 text("About FindBigFolders").size(50),
                 text("Version 0.1.0").size(30),
                 text("Quickly find out which folders are taking space on your hard disk. Way faster than finding out the sizes of everything on your system").size(20),
                 text("Copyright (c) 2025 East Coast Software LLC").size(10),
             ]
-            .padding(10)
             .spacing(5)
             .width(Length::Fill)
             .align_x(Alignment::Center)
@@ -316,7 +320,9 @@ impl AppState {
                     button("Home").style(button::text).on_press(Message::BackToMain),
                     button("About").style(button::text).on_press(Message::ShowAbout),
                 ]
-                .spacing(5)).align_right(Length::Fill),
+                .spacing(5))
+                .align_right(Length::Fill)
+                .style(styles::layout_style::header_style),
                 text("Settings").size(50),
                 row![
                     text("Number of entries to show:"),
@@ -328,7 +334,6 @@ impl AppState {
                 checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
                     .on_toggle(Message::SetShowLastAccessed),
             ]
-            .padding(10)
             .spacing(5)
             .width(Length::Fill)
             .align_x(Alignment::Center)

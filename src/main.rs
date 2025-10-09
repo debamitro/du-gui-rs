@@ -1,5 +1,5 @@
 mod app;
-
+mod styles;
 use app::AppState;
 use iced::Theme;
 
