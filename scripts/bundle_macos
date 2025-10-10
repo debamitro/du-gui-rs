@@ -1,0 +1,39 @@
+#!/bin/bash
+
+[[ -n "$CERTIFICATE" ]] || exit
+
+app_name="FindBigFolders"
+dmg_name="findbigfolders_0.1_beta.dmg"
+
+if [ -n "$TARGET" ]; then
+    target_folder="target/$TARGET"
+    dmg_name="findbigfolders_0.1_beta-$TARGET.dmg"
+else
+    target_folder="target/"
+fi
+
+# 1 Bundle
+cargo bundle --release
+
+# 2 Codesign
+codesign --options runtime --force -s "${CERTIFICATE}" $target_folder/release/bundle/osx/$app_name.app
+
+# 3 Create dmg
+mkdir tmp.$$
+mkdir tmp.$$/$app_name
+cp -r $target_folder/release/bundle/osx/$app_name.app tmp.$$/$app_name
+hdiutil create -verbose -srcfolder tmp.$$/$app_name -format UDZO -ov ./$dmg_name
+rm -fr tmp.$$
+
+# 4 Codesign the dmg
+codesign -s "${CERTIFICATE}" ./$dmg_name 
+
+[[ -n "$APPLE_ID" ]] || exit
+[[ -n "$APP_PASSWORD" ]] || exit
+[[ -n "$TEAM_ID" ]] || exit
+
+# 5 Submit for notarization
+xcrun notarytool submit ./$dmg_name --wait --apple-id ${APPLE_ID} --password ${APP_PASSWORD} --team-id ${TEAM_ID}
+
+# 6 Staple the dmg
+xcrun stapler staple ./$dmg_name
