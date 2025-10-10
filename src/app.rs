@@ -25,6 +25,7 @@ pub enum Message {
     Stop,
     SyncHeader(scrollable::AbsoluteOffset),
     OpenFolder(String),
+    OpenUrl(String),
     GoToSettings,
     SetEntriesVisible(String),
     SetShowLastAccessed(bool),
@@ -156,6 +157,8 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
     }
 }
 
+const ABOUT_TEXT: &str = "Quickly find out which folders are taking space on your hard disk. Way faster than finding out the sizes of everything on your system. Click on the folder names to open them.";
+
 impl AppState {
     pub fn new() -> (Self, Task<Message>) {
         (Self::default(), Task::none())
@@ -202,7 +205,10 @@ impl AppState {
                 // Handle header sync if needed
             }
             Message::OpenFolder(path) => {
-                let _ = std::process::Command::new("open").arg(&path).spawn();
+                let _ = opener::open(&path);
+            }
+            Message::OpenUrl(url) => {
+                let _ = webbrowser::open(&url);
             }
             Message::GoToSettings => {
                 self.mode = Mode::Settings;
@@ -306,10 +312,14 @@ impl AppState {
                 .spacing(5))
                 .align_right(Length::Fill)
                 .style(styles::layout_style::header_style),
-                text("About FindBigFolders").size(50),
-                text("Version 0.1.0").size(30),
-                text("Quickly find out which folders are taking space on your hard disk. Way faster than finding out the sizes of everything on your system").size(20),
-                text("Copyright (c) 2025 East Coast Software LLC").size(10),
+                column![
+                    text("About FindBigFolders").size(50),
+                    text("Version 0.1.0").size(30),
+                    text(ABOUT_TEXT).size(20),
+                    button(text("Copyright © 2025 East Coast Software LLC").size(10)).style(button::text).on_press(Message::OpenUrl("https://www.eastcoastsoft.com".to_string())),
+                ]                .padding(10)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
             ]
             .spacing(5)
             .width(Length::Fill)
@@ -323,16 +333,21 @@ impl AppState {
                 .spacing(5))
                 .align_right(Length::Fill)
                 .style(styles::layout_style::header_style),
-                text("Settings").size(50),
-                row![
-                    text("Number of entries to show:"),
-                    text_input("", &self.settings.entries_visible.to_string())
-                        .on_input(Message::SetEntriesVisible),
+                column![
+                    text("Settings").size(50),
+                    row![
+                        text("Number of entries to show:"),
+                        text_input("", &self.settings.entries_visible.to_string())
+                            .on_input(Message::SetEntriesVisible),
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                    checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
+                        .on_toggle(Message::SetShowLastAccessed),
                 ]
-                .spacing(10)
-                .align_y(Alignment::Center),
-                checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
-                    .on_toggle(Message::SetShowLastAccessed),
+                .padding(10)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
             ]
             .spacing(5)
             .width(Length::Fill)
