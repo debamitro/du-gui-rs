@@ -1,2 +1,5 @@
-# du-gui-rs
-free up space on your hard disk
+# FindBigFolders
+
+![image](screenshot-1.png)
+
+Free up space on your hard disk
