@@ -11,7 +11,7 @@ copyright = "East Coast Software LLC"
 category = "public.app-category.productivity"
 
 [dependencies]
-iced = { version = "0.13", features = ["tokio"] }
+iced = { version = "0.13", features = ["tokio", "tiny-skia"] }
 iced_table = "0.13.0"
 dirs = "5.0"
 tokio = { version = "1", features = ["full"] }
@@ -19,3 +19,6 @@ chrono = "0.4"
 rfd = "0.14"
 webbrowser = "1.0"
 opener = "0.8.3"
+
+[build-dependencies]
+embed-manifest = "1.4.0"

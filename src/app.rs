@@ -376,19 +376,30 @@ impl AppState {
     }
 }
 
+#[cfg(unix)]
+fn get_allocated_size(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    if let Ok(meta) = path.metadata() {
+        let blocks = meta.blocks();
+        blocks * 512
+    } else {
+        0
+    }
+}
+
+#[cfg(windows)]
+fn get_allocated_size(path: &Path) -> u64 {
+    use std::os::windows::fs::MetadataExt;
+    if let Ok(meta) = path.metadata() {
+        meta.file_size()
+    } else {
+        0
+    }
+}
+
+
 async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
     use std::fs;
-
-    fn get_allocated_size(path: &Path) -> u64 {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = path.metadata() {
-            let blocks = meta.blocks();
-            let _blksize = meta.blksize() as u64;
-            blocks * 512
-        } else {
-            0
-        }
-    }
 
     #[derive(Clone)]
     enum State {

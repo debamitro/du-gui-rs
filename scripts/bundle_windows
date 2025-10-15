@@ -1,0 +1,7 @@
+#!/bin/bash
+
+cd target/x86_64-pc-windows-gnu/release/
+zip -r ../../../findbigfolders_0.1_beta-x86_64-windows.zip du-gui-rs.exe
+cd ../../../
+
+exit 0

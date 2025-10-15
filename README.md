@@ -13,7 +13,8 @@ Free up space on your hard disk
 ## Works on
 
 ![Works on Rocky Linux](https://img.shields.io/badge/rocky_linux-10B981?style=for-the-badge&logo=rockylinux&logoColor=white)
-![Works on MacOS](https://img.shields.io/badge/mac_os-blue?style=for-the-badge&logo=apple&logoColor=white)
+![Works on MacOS](https://img.shields.io/badge/mac_os-silver?style=for-the-badge&logo=apple&logoColor=white)
+![Works on Windows](https://img.shields.io/badge/windows-blue?style=for-the-badge&logoColor=white)
 
 ## How to Install
 
