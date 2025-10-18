@@ -1,6 +1,7 @@
 use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length, Renderer, Task, Theme};
 use iced_table::table;
+use iced_aw::ContextMenu;
 use iced::futures;
 use iced::stream;
 use iced::Subscription;
@@ -11,6 +12,7 @@ use iced::futures::{SinkExt, StreamExt};
 use iced::alignment::Vertical;
 use chrono::{DateTime, Local};
 use rfd::AsyncFileDialog;
+use arboard::Clipboard;
 use crate::styles;
 
 #[derive(Debug, Clone)]
@@ -26,6 +28,7 @@ pub enum Message {
     SyncHeader(scrollable::AbsoluteOffset),
     OpenFolder(String),
     OpenUrl(String),
+    CopyPath(String),
     GoToSettings,
     SetEntriesVisible(String),
     SetShowLastAccessed(bool),
@@ -136,11 +139,24 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
 
     fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
         let content: Element<_> = match self.kind {
-            FileColumnKind::File => button(
-                text(&row.file))
-                .style(button::text)
-                .on_press(Message::OpenFolder(row.file.clone()))
-                .into(),
+            FileColumnKind::File => {
+                let btn = text(&row.file);
+                let path = row.file.clone();
+                ContextMenu::new(btn, move || {
+                    column(vec![
+                        button("Open")
+                            .on_press(Message::OpenFolder(path.clone()))
+                            .into(),
+                        button("Copy Path")
+                            .on_press(Message::CopyPath(path.clone()))
+                            .into(),
+                        button("Search inside folder")
+                            .on_press(Message::FolderSelected(Some(path.clone().into())))
+                            .into(),
+                    ])
+                    .into()
+                }).into()
+            }
             FileColumnKind::Size => text(format_size(row.size)).into(),
             FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed { accessed_dt.format("%Y-%m-%d %H:%M").to_string() } else { "".to_string() }).into(),
         };
@@ -209,6 +225,11 @@ impl AppState {
             }
             Message::OpenUrl(url) => {
                 let _ = webbrowser::open(&url);
+            }
+            Message::CopyPath(path) => {
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    let _ = clipboard.set_text(&path);
+                }
             }
             Message::GoToSettings => {
                 self.mode = Mode::Settings;

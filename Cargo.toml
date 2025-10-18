@@ -13,7 +13,9 @@ category = "public.app-category.productivity"
 [dependencies]
 iced = { version = "0.13", features = ["tokio", "tiny-skia"] }
 iced_table = "0.13.0"
+iced_aw = { version = "0.12", features = ["context_menu"] }
 dirs = "5.0"
+arboard = "3.4"
 tokio = { version = "1", features = ["full"] }
 chrono = "0.4"
 rfd = "0.14"
