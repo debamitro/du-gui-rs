@@ -1,6 +1,6 @@
 use iced::widget::button;
-use iced::Theme;
 use iced::Border;
+use iced::Theme;
 
 pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
     let mut style = button::primary(theme, status);

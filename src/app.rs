@@ -1,19 +1,19 @@
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
-use iced::{Alignment, Element, Length, Renderer, Task, Theme};
-use iced_table::table;
-use iced_aw::ContextMenu;
-use iced::futures;
-use iced::stream;
-use iced::Subscription;
-use std::path::{Path, PathBuf};
-use futures::channel::mpsc;
-use std::collections::HashMap;
-use iced::futures::{SinkExt, StreamExt};
-use iced::alignment::Vertical;
-use chrono::{DateTime, Local};
-use rfd::AsyncFileDialog;
-use arboard::Clipboard;
 use crate::styles;
+use arboard::Clipboard;
+use chrono::{DateTime, Local};
+use futures::channel::mpsc;
+use iced::alignment::Vertical;
+use iced::futures;
+use iced::futures::{SinkExt, StreamExt};
+use iced::stream;
+use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
+use iced::Subscription;
+use iced::{Alignment, Element, Length, Renderer, Task, Theme};
+use iced_aw::ContextMenu;
+use iced_table::table;
+use rfd::AsyncFileDialog;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -137,7 +137,12 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
         container(text(content)).align_y(Vertical::Center).into()
     }
 
-    fn cell(&'a self, _col_index: usize, _row_index: usize, row: &'a FileEntry) -> Element<'a, Message> {
+    fn cell(
+        &'a self,
+        _col_index: usize,
+        _row_index: usize,
+        row: &'a FileEntry,
+    ) -> Element<'a, Message> {
         let content: Element<_> = match self.kind {
             FileColumnKind::File => {
                 let btn = text(&row.file);
@@ -155,13 +160,22 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
                             .into(),
                     ])
                     .into()
-                }).into()
+                })
+                .into()
             }
             FileColumnKind::Size => text(format_size(row.size)).into(),
-            FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed { accessed_dt.format("%Y-%m-%d %H:%M").to_string() } else { "".to_string() }).into(),
+            FileColumnKind::AccessTime => text(if let Some(accessed_dt) = row.accessed {
+                accessed_dt.format("%Y-%m-%d %H:%M").to_string()
+            } else {
+                "".to_string()
+            })
+            .into(),
         };
 
-        container(content).width(Length::Fill).align_y(Vertical::Center).into()
+        container(content)
+            .width(Length::Fill)
+            .align_y(Vertical::Center)
+            .into()
     }
 
     fn width(&self) -> f32 {
@@ -192,7 +206,7 @@ impl AppState {
                 self.search_tx = Some(tx1);
                 self.stop_tx = Some(tx2);
             }
-            Message::CurrentUser =>  {
+            Message::CurrentUser => {
                 self.entries.clear();
                 if let Some(tx) = &mut self.search_tx {
                     self.scanning = true;
@@ -249,7 +263,10 @@ impl AppState {
             Message::OpenFolderDialog => {
                 return Task::perform(
                     async {
-                        AsyncFileDialog::new().pick_folder().await.map(|handle| handle.path().to_path_buf())
+                        AsyncFileDialog::new()
+                            .pick_folder()
+                            .await
+                            .map(|handle| handle.path().to_path_buf())
                     },
                     Message::FolderSelected,
                 );
@@ -281,39 +298,47 @@ impl AppState {
                 );
                 column![
                     container(
-                    row![
-                        button("About").style(button::text).on_press(Message::ShowAbout),
-                        button("Settings").style(button::text).on_press(Message::GoToSettings),
-                    ]
-                    .spacing(5))
+                        row![
+                            button("About")
+                                .style(button::text)
+                                .on_press(Message::ShowAbout),
+                            button("Settings")
+                                .style(button::text)
+                                .on_press(Message::GoToSettings),
+                        ]
+                        .spacing(5)
+                    )
                     .align_right(Length::Fill)
                     .style(styles::layout_style::header_style),
                     text("FindBigFolders").size(50),
                     row![
                         button("Select Folder")
-                        .style(styles::button_style::action_button)
-                        .on_press_maybe(if self.scanning { 
-                            None } else { 
-                                Some(Message::OpenFolderDialog) 
+                            .style(styles::button_style::action_button)
+                            .on_press_maybe(if self.scanning {
+                                None
+                            } else {
+                                Some(Message::OpenFolderDialog)
                             }),
                         button("Current User's Home")
-                        .style(styles::button_style::action_button)
-                        .on_press_maybe(if self.scanning { 
-                            None } else { 
-                                Some(Message::CurrentUser) 
+                            .style(styles::button_style::action_button)
+                            .on_press_maybe(if self.scanning {
+                                None
+                            } else {
+                                Some(Message::CurrentUser)
                             }),
                         button("All Users")
-                        .style(styles::button_style::action_button)
-                        .on_press_maybe(if self.scanning { 
-                            None } else { 
-                                Some(Message::AllUsers) 
+                            .style(styles::button_style::action_button)
+                            .on_press_maybe(if self.scanning {
+                                None
+                            } else {
+                                Some(Message::AllUsers)
                             }),
                         button("Stop")
-                        .style(styles::button_style::stop_button)
-                        .on_press_maybe(if self.scanning { 
-                            Some(Message::Stop) 
-                            } else { 
-                                None 
+                            .style(styles::button_style::stop_button)
+                            .on_press_maybe(if self.scanning {
+                                Some(Message::Stop)
+                            } else {
+                                None
                             }),
                     ]
                     .spacing(5),
@@ -326,19 +351,30 @@ impl AppState {
                 .into()
             }
             Mode::About => column![
-                container(row![
-                    button("Home").style(button::text).on_press(Message::BackToMain),
-                    button("Settings").style(button::text).on_press(Message::GoToSettings),
-                ]
-                .spacing(5))
+                container(
+                    row![
+                        button("Home")
+                            .style(button::text)
+                            .on_press(Message::BackToMain),
+                        button("Settings")
+                            .style(button::text)
+                            .on_press(Message::GoToSettings),
+                    ]
+                    .spacing(5)
+                )
                 .align_right(Length::Fill)
                 .style(styles::layout_style::header_style),
                 column![
                     text("About FindBigFolders").size(50),
                     text("Version 0.1.0").size(30),
                     text(ABOUT_TEXT).size(20),
-                    button(text("Copyright © 2025 East Coast Software LLC").size(10)).style(button::text).on_press(Message::OpenUrl("https://www.eastcoastsoft.com".to_string())),
-                ]                .padding(10)
+                    button(text("Copyright © 2025 East Coast Software LLC").size(10))
+                        .style(button::text)
+                        .on_press(Message::OpenUrl(
+                            "https://www.eastcoastsoft.com".to_string()
+                        )),
+                ]
+                .padding(10)
                 .width(Length::Fill)
                 .align_x(Alignment::Center)
             ]
@@ -347,11 +383,17 @@ impl AppState {
             .align_x(Alignment::Center)
             .into(),
             Mode::Settings => column![
-                container(row![
-                    button("Home").style(button::text).on_press(Message::BackToMain),
-                    button("About").style(button::text).on_press(Message::ShowAbout),
-                ]
-                .spacing(5))
+                container(
+                    row![
+                        button("Home")
+                            .style(button::text)
+                            .on_press(Message::BackToMain),
+                        button("About")
+                            .style(button::text)
+                            .on_press(Message::ShowAbout),
+                    ]
+                    .spacing(5)
+                )
                 .align_right(Length::Fill)
                 .style(styles::layout_style::header_style),
                 column![
@@ -393,7 +435,11 @@ impl AppState {
                 }
             }
         }
-        self.status = format!("Scanned {} folders, showing the {} biggest ones", self.entries.len(), self.settings.entries_visible);
+        self.status = format!(
+            "Scanned {} folders, showing the {} biggest ones",
+            self.entries.len(),
+            self.settings.entries_visible
+        );
     }
 }
 
@@ -418,8 +464,11 @@ fn get_allocated_size(path: &Path) -> u64 {
     }
 }
 
-
-async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
+async fn calculate_dir_size(
+    path: &Path,
+    tx: &mut mpsc::Sender<Message>,
+    stop_rx: &mut mpsc::Receiver<Message>,
+) {
     use std::fs;
 
     #[derive(Clone)]
@@ -434,7 +483,10 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
         state: State,
     }
 
-    let mut stack = vec![Item { path: path.to_path_buf(), state: State::Visiting }];
+    let mut stack = vec![Item {
+        path: path.to_path_buf(),
+        state: State::Visiting,
+    }];
     let mut sizes: HashMap<PathBuf, u64> = HashMap::new();
 
     while let Some(mut item) = stack.pop() {
@@ -452,7 +504,10 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                             if p.is_symlink() {
                                 continue;
                             }
-                            stack.push(Item { path: p, state: State::Visiting });
+                            stack.push(Item {
+                                path: p,
+                                state: State::Visiting,
+                            });
                         }
                     }
                 }
@@ -477,7 +532,13 @@ async fn calculate_dir_size(path: &Path, tx: &mut mpsc::Sender<Message>, stop_rx
                     }
                 }
                 sizes.insert(item.path.clone(), size);
-                let _ = tx.send(Message::Scanned(FileEntry { file: item.path.to_str().unwrap_or_default().to_string(), size: size, accessed: None })).await;
+                let _ = tx
+                    .send(Message::Scanned(FileEntry {
+                        file: item.path.to_str().unwrap_or_default().to_string(),
+                        size: size,
+                        accessed: None,
+                    }))
+                    .await;
                 if let Ok(Some(Message::Stop)) = stop_rx.try_next() {
                     return;
                 }
@@ -497,7 +558,11 @@ fn format_size(size: u64) -> String {
     format!("{:.1} {}", size_f, UNITS[unit_index])
 }
 
-async fn scan_dirs(start_dir: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &mut mpsc::Receiver<Message>) {
+async fn scan_dirs(
+    start_dir: &Path,
+    tx: &mut mpsc::Sender<Message>,
+    stop_rx: &mut mpsc::Receiver<Message>,
+) {
     use std::fs;
 
     if let Ok(dir_entries) = fs::read_dir(&start_dir) {
@@ -511,39 +576,33 @@ async fn scan_dirs(start_dir: &Path, tx: &mut mpsc::Sender<Message>, stop_rx: &m
 }
 
 fn scanner_subscription() -> impl futures::Stream<Item = Message> {
-    stream::channel(
-        100,
-        |mut output| async move {
-            let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
-            let (stop_tx, mut stop_rx) = mpsc::channel(1);
-            let _ = output.send(Message::SearchReady(cmd_tx, stop_tx)).await;
+    stream::channel(100, |mut output| async move {
+        let (cmd_tx, mut cmd_rx) = mpsc::channel(10);
+        let (stop_tx, mut stop_rx) = mpsc::channel(1);
+        let _ = output.send(Message::SearchReady(cmd_tx, stop_tx)).await;
 
-            loop {
-                let msg = cmd_rx.try_next();
-                if let Ok(Some(Message::CurrentUser)) = msg {
-                    if let Some(dir) = dirs::home_dir() {
-                        scan_dirs(&dir, &mut output, &mut stop_rx).await;
+        loop {
+            let msg = cmd_rx.try_next();
+            if let Ok(Some(Message::CurrentUser)) = msg {
+                if let Some(dir) = dirs::home_dir() {
+                    scan_dirs(&dir, &mut output, &mut stop_rx).await;
+                    let _ = output.send(Message::Done).await;
+                }
+            } else if let Ok(Some(Message::AllUsers)) = msg {
+                if let Some(dir) = dirs::home_dir() {
+                    if let Some(parent_dir) = dir.parent() {
+                        scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
                         let _ = output.send(Message::Done).await;
                     }
                 }
-                else if let Ok(Some(Message::AllUsers)) = msg {
-                    if let Some(dir) = dirs::home_dir() {
-                        if let Some(parent_dir) = dir.parent() {
-                            scan_dirs(&parent_dir, &mut output, &mut stop_rx).await;
-                            let _ = output.send(Message::Done).await;
-                        }
-                    }
+            } else if let Ok(Some(Message::FolderSelected(path))) = msg {
+                if let Some(path) = path {
+                    scan_dirs(&path, &mut output, &mut stop_rx).await;
+                    let _ = output.send(Message::Done).await;
                 }
-                else if let Ok(Some(Message::FolderSelected(path))) = msg {
-                    if let Some(path) = path {
-                        scan_dirs(&path, &mut output, &mut stop_rx).await;
-                        let _ = output.send(Message::Done).await;
-                    }
-                }
-                else if let Err(_) = msg {
-                    tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                }
+            } else if let Err(_) = msg {
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             }
         }
-    )
+    })
 }
