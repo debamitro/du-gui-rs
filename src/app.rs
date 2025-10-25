@@ -15,6 +15,8 @@ use rfd::AsyncFileDialog;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use csv::Writer;
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ShowAbout,
@@ -34,6 +36,8 @@ pub enum Message {
     SetShowLastAccessed(bool),
     OpenFolderDialog,
     FolderSelected(Option<PathBuf>),
+    ExportCsv,
+    CsvExported,
 }
 
 #[derive(Clone, Debug)]
@@ -280,6 +284,13 @@ impl AppState {
                     }
                 }
             }
+            Message::ExportCsv => {
+                let entries = self.entries.clone();
+                return Task::perform(async move {
+                    export_csv(entries).await;
+                }, |_| Message::CsvExported);
+            }
+            Message::CsvExported => {}
         }
         Task::none()
     }
@@ -339,6 +350,13 @@ impl AppState {
                                 Some(Message::Stop)
                             } else {
                                 None
+                            }),
+                        button("Export as CSV")
+                            .style(styles::button_style::action_button)
+                            .on_press_maybe(if self.entries.is_empty() {
+                                None
+                            } else {
+                                Some(Message::ExportCsv)
                             }),
                     ]
                     .spacing(5),
@@ -556,6 +574,28 @@ fn format_size(size: u64) -> String {
         unit_index += 1;
     }
     format!("{:.1} {}", size_f, UNITS[unit_index])
+}
+
+async fn export_csv(entries: Vec<FileEntry>) {
+    let now = Local::now();
+    let timestamp = now.format("%Y-%m-%d_%H-%M-%S");
+    let filename = format!("findbigfolders_{}.csv", timestamp);
+    let dialog = AsyncFileDialog::new()
+        .add_filter("CSV", &["csv"])
+        .set_file_name(&filename)
+        .save_file()
+        .await;
+    if let Some(handle) = dialog {
+        let path = handle.path();
+        let mut wtr = Writer::from_path(path).unwrap();
+        wtr.write_record(&["File", "Size"]).unwrap();
+        for entry in entries {
+            if entry.size > 0 {
+                wtr.write_record(&[&entry.file, &format_size(entry.size)]).unwrap();
+            }
+        }
+        wtr.flush().unwrap();
+    }
 }
 
 async fn scan_dirs(
