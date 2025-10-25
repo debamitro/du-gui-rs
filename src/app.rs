@@ -6,7 +6,7 @@ use iced::alignment::Vertical;
 use iced::futures;
 use iced::futures::{SinkExt, StreamExt};
 use iced::stream;
-use iced::widget::{button, checkbox, column, container, row, scrollable, text, text_input};
+use iced::widget::{button, checkbox, column, container, row, scrollable, stack, text, text_input};
 use iced::Subscription;
 use iced::{Alignment, Element, Length, Renderer, Task, Theme};
 use iced_aw::ContextMenu;
@@ -38,6 +38,8 @@ pub enum Message {
     FolderSelected(Option<PathBuf>),
     ExportCsv,
     CsvExported,
+    ShowWaitDialog,
+    CloseWaitDialog,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +75,7 @@ pub struct AppState {
     body: scrollable::Id,
     settings: AppSettings,
     status: String,
+    show_wait_dialog: bool,
 }
 
 impl Default for AppState {
@@ -93,6 +96,7 @@ impl Default for AppState {
             body: scrollable::Id::unique(),
             settings: AppSettings::default(),
             status: String::new(),
+            show_wait_dialog: false,
         }
     }
 }
@@ -276,6 +280,10 @@ impl AppState {
                 );
             }
             Message::FolderSelected(path) => {
+                if self.scanning {
+                    self.show_wait_dialog = true;
+                    return Task::none();
+                }
                 if let Some(p) = path {
                     self.entries.clear();
                     if let Some(tx) = &mut self.search_tx {
@@ -291,6 +299,12 @@ impl AppState {
                 }, |_| Message::CsvExported);
             }
             Message::CsvExported => {}
+            Message::ShowWaitDialog => {
+                self.show_wait_dialog = true;
+            }
+            Message::CloseWaitDialog => {
+                self.show_wait_dialog = false;
+            }
         }
         Task::none()
     }
@@ -298,7 +312,7 @@ impl AppState {
         Subscription::run(scanner_subscription)
     }
     pub fn view(&self) -> Element<Message> {
-        match self.mode {
+        let main_content = match self.mode {
             Mode::Main => {
                 let file_table = table(
                     self.header.clone(),
@@ -353,7 +367,7 @@ impl AppState {
                             }),
                         button("Export as CSV")
                             .style(styles::button_style::action_button)
-                            .on_press_maybe(if self.entries.is_empty() {
+                            .on_press_maybe(if self.scanning || self.entries.is_empty() {
                                 None
                             } else {
                                 Some(Message::ExportCsv)
@@ -434,6 +448,38 @@ impl AppState {
             .width(Length::Fill)
             .align_x(Alignment::Center)
             .into(),
+        };
+
+        if self.show_wait_dialog {
+            stack![
+                main_content,
+                container(
+                    container(
+                        column![
+                            text("Please wait").size(24),
+                            text("Scanning is currently in progress.").size(16),
+                            button("OK")
+                                .on_press(Message::CloseWaitDialog)
+                                .style(styles::button_style::action_button),
+                        ]
+                        .spacing(15)
+                        .align_x(Alignment::Center)
+                    )
+                    .padding(30)
+                    .style(container::rounded_box)
+                )
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .style(|_theme: &Theme| container::Style {
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.7))),
+                    ..Default::default()
+                })
+            ]
+            .into()
+        } else {
+            main_content
         }
     }
 }
