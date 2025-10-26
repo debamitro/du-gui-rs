@@ -398,7 +398,7 @@ impl AppState {
                 .style(styles::layout_style::header_style),
                 column![
                     text("About FindBigFolders").size(50),
-                    text("Version 0.1.0").size(30),
+                    text("Version 0.2.0").size(30),
                     text(ABOUT_TEXT).size(20),
                     button(text("Copyright © 2025 East Coast Software LLC").size(10))
                         .style(button::text)

@@ -1,7 +1,8 @@
 #!/bin/bash
 
+cargo zigbuild --release --target x86_64-unknown-linux-gnu
 cd target/x86_64-unknown-linux-gnu/release/
-zip -r ../../../findbigfolders_0.1_beta-x86_64-linux.zip du-gui-rs
+zip -r ../../../findbigfolders_0.2_beta-x86_64-linux.zip du-gui-rs
 cd ../../../
 
 exit 0

@@ -3,17 +3,19 @@
 [[ -n "$CERTIFICATE" ]] || exit
 
 app_name="FindBigFolders"
-dmg_name="findbigfolders_0.1_beta.dmg"
+dmg_name="findbigfolders_0.2_beta.dmg"
 
 if [ -n "$TARGET" ]; then
     target_folder="target/$TARGET"
-    dmg_name="findbigfolders_0.1_beta-$TARGET.dmg"
+    dmg_name="findbigfolders_0.2_beta-$TARGET.dmg"
+    target_args="--target $TARGET"
 else
     target_folder="target/"
+    target_args=""
 fi
 
 # 1 Bundle
-cargo bundle --release
+cargo bundle --release $target_args
 
 # 2 Codesign
 codesign --options runtime --force -s "${CERTIFICATE}" $target_folder/release/bundle/osx/$app_name.app
@@ -24,6 +26,11 @@ mkdir tmp.$$/$app_name
 cp -r $target_folder/release/bundle/osx/$app_name.app tmp.$$/$app_name
 hdiutil create -verbose -srcfolder tmp.$$/$app_name -format UDZO -ov ./$dmg_name
 rm -fr tmp.$$
+
+if [[ ! -f "./$dmg_name" ]]; then
+    echo "Failed to create ./$dmg_name"
+    exit 1
+fi
 
 # 4 Codesign the dmg
 codesign -s "${CERTIFICATE}" ./$dmg_name 
