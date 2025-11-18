@@ -40,6 +40,7 @@ pub enum Message {
     CsvExported,
     ShowWaitDialog,
     CloseWaitDialog,
+    ShowNewScreen,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +48,12 @@ pub struct FileEntry {
     pub file: String,
     pub size: u64,
     pub accessed: Option<DateTime<Local>>,
+}
+
+struct AggregatedEntry {
+    pub name: String,
+    pub total_size: u64,
+    pub count: usize,
 }
 
 pub struct AppSettings {
@@ -66,11 +73,13 @@ impl Default for AppSettings {
 pub struct AppState {
     mode: Mode,
     entries: Vec<FileEntry>,
+    aggregated_entries: Vec<AggregatedEntry>,
     sort_cutoff: usize,
     scanning: bool,
     search_tx: Option<mpsc::Sender<Message>>,
     stop_tx: Option<mpsc::Sender<Message>>,
     columns: Vec<FileColumn>,
+    aggregated_columns: Vec<AggregatedColumn>,
     header: scrollable::Id,
     body: scrollable::Id,
     settings: AppSettings,
@@ -83,6 +92,7 @@ impl Default for AppState {
         Self {
             mode: Mode::default(),
             entries: Vec::new(),
+            aggregated_entries: Vec::new(),
             sort_cutoff: 1000,
             scanning: false,
             search_tx: None,
@@ -91,6 +101,11 @@ impl Default for AppState {
                 FileColumn::new(FileColumnKind::File),
                 FileColumn::new(FileColumnKind::Size),
                 FileColumn::new(FileColumnKind::AccessTime),
+            ],
+            aggregated_columns: vec![
+                AggregatedColumn::new(AggregatedColumnKind::Name),
+                AggregatedColumn::new(AggregatedColumnKind::TotalSize),
+                AggregatedColumn::new(AggregatedColumnKind::Count),
             ],
             header: scrollable::Id::unique(),
             body: scrollable::Id::unique(),
@@ -107,6 +122,23 @@ pub enum Mode {
     Main,
     About,
     Settings,
+    NewScreen,
+}
+
+struct AggregatedColumn {
+    kind: AggregatedColumnKind,
+}
+
+impl AggregatedColumn {
+    fn new(kind: AggregatedColumnKind) -> Self {
+        Self { kind }
+    }
+}
+
+enum AggregatedColumnKind {
+    Name,
+    TotalSize,
+    Count,
 }
 
 struct FileColumn {
@@ -188,6 +220,50 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for FileColumn {
 
     fn width(&self) -> f32 {
         self.width
+    }
+
+    fn resize_offset(&self) -> Option<f32> {
+        None
+    }
+}
+
+impl<'a> table::Column<'a, Message, Theme, Renderer> for AggregatedColumn {
+    type Row = AggregatedEntry;
+
+    fn header(&'a self, _col_index: usize) -> Element<'a, Message> {
+        let content = match self.kind {
+            AggregatedColumnKind::Name => "Folder Name",
+            AggregatedColumnKind::TotalSize => "Total Size",
+            AggregatedColumnKind::Count => "Count",
+        };
+
+        container(text(content)).align_y(Vertical::Center).into()
+    }
+
+    fn cell(
+        &'a self,
+        _col_index: usize,
+        _row_index: usize,
+        row: &'a AggregatedEntry,
+    ) -> Element<'a, Message> {
+        let content: Element<_> = match self.kind {
+            AggregatedColumnKind::Name => text(&row.name).into(),
+            AggregatedColumnKind::TotalSize => text(format_size(row.total_size)).into(),
+            AggregatedColumnKind::Count => text(row.count.to_string()).into(),
+        };
+
+        container(content)
+            .width(Length::Fill)
+            .align_y(Vertical::Center)
+            .into()
+    }
+
+    fn width(&self) -> f32 {
+        match self.kind {
+            AggregatedColumnKind::Name => 300.0,
+            AggregatedColumnKind::TotalSize => 150.0,
+            AggregatedColumnKind::Count => 100.0,
+        }
     }
 
     fn resize_offset(&self) -> Option<f32> {
@@ -294,9 +370,12 @@ impl AppState {
             }
             Message::ExportCsv => {
                 let entries = self.entries.clone();
-                return Task::perform(async move {
-                    export_csv(entries).await;
-                }, |_| Message::CsvExported);
+                return Task::perform(
+                    async move {
+                        export_csv(entries).await;
+                    },
+                    |_| Message::CsvExported,
+                );
             }
             Message::CsvExported => {}
             Message::ShowWaitDialog => {
@@ -304,6 +383,10 @@ impl AppState {
             }
             Message::CloseWaitDialog => {
                 self.show_wait_dialog = false;
+            }
+            Message::ShowNewScreen => {
+                self.aggregate_by_name();
+                self.mode = Mode::NewScreen;
             }
         }
         Task::none()
@@ -330,6 +413,9 @@ impl AppState {
                             button("Settings")
                                 .style(button::text)
                                 .on_press(Message::GoToSettings),
+                            button("View by Folder Names")
+                                .style(button::text)
+                                .on_press(Message::ShowNewScreen),
                         ]
                         .spacing(5)
                     )
@@ -448,6 +534,43 @@ impl AppState {
             .width(Length::Fill)
             .align_x(Alignment::Center)
             .into(),
+            Mode::NewScreen => {
+                let aggregated_table = table(
+                    self.header.clone(),
+                    self.body.clone(),
+                    &self.aggregated_columns,
+                    &self.aggregated_entries[..self
+                        .aggregated_entries
+                        .len()
+                        .min(self.settings.entries_visible)],
+                    Message::SyncHeader,
+                );
+                column![
+                    container(
+                        row![
+                            button("Home")
+                                .style(button::text)
+                                .on_press(Message::BackToMain),
+                            button("About")
+                                .style(button::text)
+                                .on_press(Message::ShowAbout),
+                            button("Settings")
+                                .style(button::text)
+                                .on_press(Message::GoToSettings),
+                        ]
+                        .spacing(5)
+                    )
+                    .align_right(Length::Fill)
+                    .style(styles::layout_style::header_style),
+                    text("FindBigFolders").size(50),
+                    container(text("View by folder names").size(20)),
+                    aggregated_table,
+                ]
+                .spacing(5)
+                .width(Length::Fill)
+                .align_x(Alignment::Center)
+                .into()
+            }
         };
 
         if self.show_wait_dialog {
@@ -473,7 +596,9 @@ impl AppState {
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center)
                 .style(|_theme: &Theme| container::Style {
-                    background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.7))),
+                    background: Some(iced::Background::Color(iced::Color::from_rgba(
+                        0.0, 0.0, 0.0, 0.7
+                    ))),
                     ..Default::default()
                 })
             ]
@@ -504,6 +629,35 @@ impl AppState {
             self.entries.len(),
             self.settings.entries_visible
         );
+    }
+
+    fn aggregate_by_name(&mut self) {
+        use std::collections::HashMap;
+
+        let mut name_map: HashMap<String, (u64, usize)> = HashMap::new();
+
+        for entry in &self.entries {
+            if let Some(name) = std::path::Path::new(&entry.file)
+                .file_name()
+                .and_then(|n| n.to_str())
+            {
+                let (total_size, count) = name_map.entry(name.to_string()).or_insert((0, 0));
+                *total_size += entry.size;
+                *count += 1;
+            }
+        }
+
+        self.aggregated_entries = name_map
+            .into_iter()
+            .map(|(name, (total_size, count))| AggregatedEntry {
+                name,
+                total_size,
+                count,
+            })
+            .collect();
+
+        self.aggregated_entries
+            .sort_by(|a, b| b.total_size.cmp(&a.total_size));
     }
 }
 
@@ -637,7 +791,8 @@ async fn export_csv(entries: Vec<FileEntry>) {
         wtr.write_record(&["File", "Size"]).unwrap();
         for entry in entries {
             if entry.size > 0 {
-                wtr.write_record(&[&entry.file, &format_size(entry.size)]).unwrap();
+                wtr.write_record(&[&entry.file, &format_size(entry.size)])
+                    .unwrap();
             }
         }
         wtr.flush().unwrap();
