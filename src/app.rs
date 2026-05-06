@@ -348,6 +348,7 @@ impl AppState {
                 return Task::perform(
                     async {
                         AsyncFileDialog::new()
+                            .set_show_hidden_files(true)
                             .pick_folder()
                             .await
                             .map(|handle| handle.path().to_path_buf())
@@ -782,6 +783,7 @@ async fn export_csv(entries: Vec<FileEntry>) {
     let filename = format!("findbigfolders_{}.csv", timestamp);
     let dialog = AsyncFileDialog::new()
         .add_filter("CSV", &["csv"])
+        .set_show_hidden_files(true)
         .set_file_name(&filename)
         .save_file()
         .await;
