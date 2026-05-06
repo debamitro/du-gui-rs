@@ -34,6 +34,7 @@ pub enum Message {
     GoToSettings,
     SetEntriesVisible(String),
     SetShowLastAccessed(bool),
+    SetShowHiddenFiles(bool),
     OpenFolderDialog,
     FolderSelected(Option<PathBuf>),
     ExportCsv,
@@ -59,6 +60,7 @@ struct AggregatedEntry {
 pub struct AppSettings {
     entries_visible: usize,
     show_last_accessed: bool,
+    show_hidden_files: bool,
 }
 
 impl Default for AppSettings {
@@ -66,6 +68,7 @@ impl Default for AppSettings {
         Self {
             entries_visible: 20,
             show_last_accessed: true,
+            show_hidden_files: false,
         }
     }
 }
@@ -340,18 +343,22 @@ impl AppState {
             Message::SetShowLastAccessed(value) => {
                 self.settings.show_last_accessed = value;
             }
+            Message::SetShowHiddenFiles(value) => {
+                self.settings.show_hidden_files = value;
+            }
             Message::Done => {
                 self.scanning = false;
                 self.bake_entries();
             }
             Message::OpenFolderDialog => {
+                let show_hidden = self.settings.show_hidden_files;
                 return Task::perform(
-                    async {
-                        AsyncFileDialog::new()
-                            .set_show_hidden_files(true)
-                            .pick_folder()
-                            .await
-                            .map(|handle| handle.path().to_path_buf())
+                    async move {
+                        let mut dialog = AsyncFileDialog::new();
+                        if show_hidden {
+                            dialog = dialog.set_show_hidden_files(true);
+                        }
+                        dialog.pick_folder().await.map(|handle| handle.path().to_path_buf())
                     },
                     Message::FolderSelected,
                 );
@@ -526,6 +533,8 @@ impl AppState {
                     .align_y(Alignment::Center),
                     checkbox("Show Last Accessed Time", self.settings.show_last_accessed)
                         .on_toggle(Message::SetShowLastAccessed),
+                    checkbox("Show Hidden Files", self.settings.show_hidden_files)
+                        .on_toggle(Message::SetShowHiddenFiles),
                 ]
                 .padding(10)
                 .width(Length::Fill)
@@ -622,9 +631,9 @@ impl AppState {
                             entry.accessed = Some(DateTime::<Local>::from(accessed));
                         }
                     }
-                }
-            }
         }
+    }
+}
         self.status = format!(
             "Scanned {} folders, showing the {} biggest ones",
             self.entries.len(),
