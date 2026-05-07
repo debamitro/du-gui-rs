@@ -1,5 +1,7 @@
 # FindBigFolders
 
+![downloads](https://img.shields.io/github/downloads/debamitro/du-gui-rs/total)
+
 ![image](screenshot-1.png)
 
 Free up space on your hard disk
