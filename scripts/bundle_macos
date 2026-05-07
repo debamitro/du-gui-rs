@@ -3,11 +3,11 @@
 [[ -n "$CERTIFICATE" ]] || exit
 
 app_name="FindBigFolders"
-dmg_name="findbigfolders_0.2_beta.dmg"
+dmg_name="findbigfolders_0.3.dmg"
 
 if [ -n "$TARGET" ]; then
     target_folder="target/$TARGET"
-    dmg_name="findbigfolders_0.2_beta-$TARGET.dmg"
+    dmg_name="findbigfolders_0.3-$TARGET.dmg"
     target_args="--target $TARGET"
 else
     target_folder="target/"
