@@ -358,7 +358,10 @@ impl AppState {
                         if show_hidden {
                             dialog = dialog.set_show_hidden_files(true);
                         }
-                        dialog.pick_folder().await.map(|handle| handle.path().to_path_buf())
+                        dialog
+                            .pick_folder()
+                            .await
+                            .map(|handle| handle.path().to_path_buf())
                     },
                     Message::FolderSelected,
                 );
@@ -414,17 +417,25 @@ impl AppState {
                 );
                 column![
                     container(
-                        row![
-                            button("About")
-                                .style(button::text)
-                                .on_press(Message::ShowAbout),
-                            button("Settings")
-                                .style(button::text)
-                                .on_press(Message::GoToSettings),
-                            button("View by Folder Names")
-                                .style(button::text)
-                                .on_press(Message::ShowNewScreen),
-                        ]
+                        {
+                            let mut row_content = row![
+                                button("About")
+                                    .style(button::text)
+                                    .on_press(Message::ShowAbout),
+                                button("Settings")
+                                    .style(button::text)
+                                    .on_press(Message::GoToSettings),
+                            ];
+                            #[cfg(feature = "view-by-folder-names")]
+                            {
+                                row_content = row_content.push(
+                                    button("View by Folder Names")
+                                        .style(button::text)
+                                        .on_press(Message::ShowNewScreen),
+                                );
+                            }
+                            row_content
+                        }
                         .spacing(5)
                     )
                     .align_right(Length::Fill)
@@ -631,9 +642,9 @@ impl AppState {
                             entry.accessed = Some(DateTime::<Local>::from(accessed));
                         }
                     }
+                }
+            }
         }
-    }
-}
         self.status = format!(
             "Scanned {} folders, showing the {} biggest ones",
             self.entries.len(),

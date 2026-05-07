@@ -26,3 +26,7 @@ opener = "0.8.3"
 
 [build-dependencies]
 embed-manifest = "1.4.0"
+
+[features]
+default = []
+view-by-folder-names = []
