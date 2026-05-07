@@ -1,5 +1,7 @@
 #!/bin/bash
 
+[[ -f ".osx_credentials" ]] && source .osx_credentials
+
 [[ -n "$CERTIFICATE" ]] || exit
 
 app_name="FindBigFolders"
